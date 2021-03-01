@@ -50,6 +50,24 @@ class Cart:
         self.shop_id = shop_id
 
 
+def shop_found(shop_id):
+    cur.execute("select * from shops where shops.id=%s", [shop_id])
+    shps = cur.fetchall()
+    if shps is None or len(shps) == 0:
+        return False
+    else:
+        return True
+
+
+def authorized(user_id):
+    cur.execute("select id from buys_users where id = %s", [user_id])
+    idd = cur.fetchone()
+    if idd is None:
+        return False
+    else:
+        return True
+
+
 def get_receipts_ids():
     cur.execute("select id from buys_receipts")
     return cur.fetchall()
@@ -122,10 +140,8 @@ async def get_shop_goods(shop_id: int):
 
 
 def gsg(shop_id, good_id):
-    cur.execute("select * from shops where shops.id=%s", [shop_id])
-    shps = cur.fetchall()
-    if shps is None or len(shps) == 0:
-        return "No shop found"
+    if not shop_found(shop_id):
+        return "Shop not found"
     cur.execute("select * from shops_goods where shop_id=%s and id=%s", (shop_id, good_id))
     row = cur.fetchone()
     if row is None or len(row) == 0:
@@ -141,10 +157,10 @@ async def get_shop_good(shop_id: int, good_id: int):
 
 
 def gcfs(shop_id, user_id):
-    cur.execute("select * from shops where shops.id=%s", [shop_id])
-    shps = cur.fetchall()
-    if shps is None or len(shps) == 0:
-        return "No shop found"
+    if not authorized(user_id):
+        return "User not found. Please, type your correct id or register in the system in /register/?id={your_id} URL"
+    if not shop_found(shop_id):
+        return "Shop not found"
     cart_dict = {}
     cur.execute("select * from shops_cart where user_id=%s and shop_id = %s", (user_id, shop_id))
     row = cur.fetchall()
@@ -163,8 +179,22 @@ async def get_cart_from_shop(shop_id: int, user_id: int):
     return gcfs(shop_id, user_id)
 
 
+@shops.delete("/shops/{shop_id}/goods/{good_id}/delete_cart")
+async def clear_cart(user_id: int, shop_id):
+    if not authorized(user_id):
+        return "User not found. Please, type your correct id or register in the system in /register/?id={your_id} URL"
+    if not shop_found(shop_id):
+        return "Shop not found"
+    cur.execute("delete from shops_cart where user_id = %s and shop_id = %s", (user_id, shop_id))
+    con.commit()
+
+
 @shops.post("/shops/{shop_id}/goods/{good_id}/add_to_cart")
 async def add_good_to_cart(shop_id: int, good_id: int, user_id: int, purchased_amount: int):
+    if not authorized(user_id):
+        return "User not found. Please, type your correct id or register in the system in /register/?id={your_id} URL"
+    if not shop_found(shop_id):
+        return "Shop not found"
     good_object = gsg(shop_id, good_id)
     if good_object == "No good found" or good_object == "No shop found":
         return good_object
@@ -172,15 +202,32 @@ async def add_good_to_cart(shop_id: int, good_id: int, user_id: int, purchased_a
         generated_cart_id = random.randint(0, 2000000000)
         while find_in_carts(generated_cart_id):
             generated_cart_id = random.randint(0, 2000000000)
-        cur.execute("insert into shops_cart values(%s, %s, %s, %s, %s)",
-                    (generated_cart_id, user_id, good_id, purchased_amount, shop_id))
-        con.commit()
+        cart_goods = get_goods_from_cart(shop_id, user_id)
+        good_is_in_cart = False
+        if cart_goods == "No cart found" or cart_goods == "Shop not found" or cart_goods == "User not found. Please, type your correct id or register in the system in /register/?id={your_id} URL":
+            return cart_goods
+        for good in cart_goods[0]:
+            if good.id == good_id:
+                good_is_in_cart = True
+                break
+        if not good_is_in_cart:
+            cur.execute("insert into shops_cart values(%s, %s, %s, %s, %s)",
+                        (generated_cart_id, user_id, good_id, purchased_amount, shop_id))
+            con.commit()
+        else:
+            cur.execute("update shops_cart set purchased_amount = purchased_amount + %s where good_id = %s and user_id "
+                        "= %s and shop_id = %s", (purchased_amount, good_id, user_id, shop_id))
+            con.commit()
         return "Good was added to your cart"
     else:
         return "Not enough goods in shop"
 
 
 def get_goods_from_cart(shop_id, user_id):
+    if not authorized(user_id):
+        return "User not found. Please, type your correct id or register in the system in /register/?id={your_id} URL"
+    if not shop_found(shop_id):
+        return "Shop not found"
     cart = gcfs(shop_id, user_id)
     if cart == "No cart found":
         return cart
@@ -193,17 +240,20 @@ def get_goods_from_cart(shop_id, user_id):
 
 
 @shops.post("/shops/{shop_id}/buy_cart")
-async def buy_cart(shop_id: int, user_id: int):
+async def buy_cart(shop_id: int, user_id: int, payed_by_card: bool):
+    if not authorized(user_id):
+        return "User not found. Please, type your correct id or register in the system in /register/?id={your_id} URL"
+    if not shop_found(shop_id):
+        return "Shop not found"
     generated_receipt_id = random.randint(0, 2000000000)
     while find_in_receipts(generated_receipt_id):
         generated_receipt_id = random.randint(0, 2000000000)
-    cart = gcfs(shop_id, user_id)
     goods = get_goods_from_cart(shop_id, user_id)
     for i in range(0, len(goods[0])):
-        cur.execute("insert into buys_receipts values(%s, %s, %s, %s, %s, %s, %s, %s, %s)", (
+        cur.execute("insert into buys_receipts values(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (
             generated_receipt_id, shop_id, goods[0][i].shop_name, datetime.datetime.now(), goods[0][i].name,
             goods[1][i],
-            goods[0][i].categories, goods[0][i].id, user_id))
+            goods[0][i].categories, goods[0][i].id, user_id, payed_by_card))
         con.commit()
     cur.execute("delete from shops_cart where shop_id=%s and user_id=%s", (shop_id, user_id))
     con.commit()

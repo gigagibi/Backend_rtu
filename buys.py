@@ -58,23 +58,7 @@ def authorized(user_id):
         return True
 
 
-@buys.get("/buys/goods/{user_id}")
-async def get_user_receipts(user_id: int):
-    if not authorized(user_id):
-        return "User not found. Please, type your correct id or register in the system in /register/?id={your_id} URL"
-    receipts = []
-    cur.execute(
-        "select * from buys_receipts where user_id = %s",
-        [user_id])
-    for row in cur:
-        receipts.append(Receipt(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8]))
-    if len(receipts) != 0:
-        return receipts
-    else:
-        return "No goods found"
-
-
-@buys.post("/register/")
+@buys.post("/register")
 async def register_user(user_id: int):
     if authorized(user_id):
         return "This id is already used"
@@ -84,7 +68,7 @@ async def register_user(user_id: int):
         return "You have successfully registered. Use your id for authorization, and dont tell it anyone"
 
 
-@buys.get("/buys/receipts/{user_id}/")
+@buys.get("/buys/{user_id}/receipts")
 async def get_user_receipts_ids(user_id: int):
     if not authorized(user_id):
         return "User not found. Please, type your correct id or register in the system in /register/?id={your_id} URL"
@@ -98,16 +82,25 @@ async def get_user_receipts_ids(user_id: int):
         return "No receipts found"
 
 
-@buys.delete("/buys/receipts/{user_id}/{receipt_id}")
+@buys.delete("/buys/{user_id}/receipts/{receipt_id}")
 async def delete_user_receipt(user_id: int, receipt_id: int):
     if not authorized(user_id):
         return "User not found. Please, type your correct id or register in the system in /register/?id={your_id} URL"
     cur.execute("delete from buys_receipts where id = %s and user_id=%s", (receipt_id, user_id))
     con.commit()
-    return get_user_receipts_ids()
+    return "Receipts was deleted"
 
 
-@buys.get("/buys/receipts/{user_id}/{receipt_id}")
+@buys.delete("/buys/{user_id}/receipts")
+async def delete_all_user_receipts(user_id: int):
+    if not authorized(user_id):
+        return "User not found. Please, type your correct id or register in the system in /register/?id={your_id} URL"
+    cur.execute("delete from buys_receipts where user_id=%s", [user_id])
+    con.commit()
+    return "All receipts were deleted"
+
+
+@buys.get("/buys/{user_id}/receipts/{receipt_id}")
 async def get_user_receipt_goods(user_id: int, receipt_id: int):
     goods = []
     if not authorized(user_id):
@@ -122,9 +115,28 @@ async def get_user_receipt_goods(user_id: int, receipt_id: int):
         return "No goods found"
 
 
-@buys.post("/buys/receipts/{user_id}/add_category")
+@buys.post("/buys/{user_id}/receipts/add_category")
 async def add_good_category(user_id: int, good_id: int, category: str):
     cur.execute("update buys_receipts set categories[array_length(categories, 1) + 1] = %s where user_id=%s and "
                 "good_id = %s", (category, user_id, good_id))
     con.commit()
     return "Category was successfully added"
+
+
+@buys.get("/buys/{user_id}/goods")
+async def get_user_goods(user_id: int, good_id: Optional[int] = None, good_name: Optional[str] = None,
+                         category: Optional[str] = None):
+    receipts = []
+    if not authorized(user_id):
+        return "User not found. Please, type your correct id or register in the system in /register/?id={your_id} " \
+               "URL "
+    cur.execute(
+        "select * from buys_receipts where user_id = %s or good_id = %s or good_name = %s or array_to_string("
+        "categories, ' ') = %s",
+        (user_id, good_id, good_name, category))
+    for row in cur:
+        receipts.append(Receipt(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8]))
+    if len(receipts) != 0:
+        return receipts
+    else:
+        return "No goods found"
