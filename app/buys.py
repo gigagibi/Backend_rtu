@@ -1,10 +1,5 @@
-import datetime
-import json
 from typing import Optional
-
 from fastapi import FastAPI, HTTPException
-from psycopg2.extras import DictCursor
-from pydantic import BaseModel
 import psycopg2
 
 con = psycopg2.connect(
